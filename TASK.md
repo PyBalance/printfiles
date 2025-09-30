@@ -69,17 +69,17 @@
     * [ ] macOS 条件测试：在有/无 `textutil` 两种情况下输出一致性（允许回退差异）。
   * [ ] 基准/性能（可选）：`hyperfine` 比较有无 `BufWriter`、并发读取的收益。
 
-* [ ] 文档与示例
+* [x] 文档与示例
 
-  * [ ] `README.md`：项目简介、安装、用法、示例、平台差异、退出码说明。
-  * [ ] 使用示例：
+  * [x] `README.md`：项目简介、安装、用法、示例、平台差异、退出码说明。
+  * [x] 使用示例：
 
-    * [ ] `printfiles "src/**/*.rs,docs/*.md"`
-    * [ ] `printfiles src/**/*.rs docs/*.md,tests/*.rs`
-    * [ ] `printfiles src --ext rs,md`
-    * [ ] `printfiles reports/**/*.docx --reader textutil`
-    * [ ] `printfiles reports,docs --ext md,docx --reader auto`
-  * [ ] 贡献指南与开发指引（`CONTRIBUTING.md`，含 `cargo fmt`, `clippy`, 测试命令）。
+    * [x] `printfiles "src/**/*.rs,docs/*.md"`
+    * [x] `printfiles src/**/*.rs docs/*.md,tests/*.rs`
+    * [x] `printfiles src --ext rs,md`
+    * [x] `printfiles reports/**/*.docx --reader textutil`
+    * [x] `printfiles reports,docs --ext md,docx --reader auto`
+  * [x] 贡献指南与开发指引（`CONTRIBUTING.md`，含 `cargo fmt`, `clippy`, 测试命令）。
 
 * [ ] 发行与分发
 
