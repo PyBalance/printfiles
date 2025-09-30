@@ -67,6 +67,10 @@ struct Args {
     /// 排序策略：按名称、大小或修改时间
     #[arg(long, value_enum, default_value_t = SortKey::Name)]
     sort: SortKey,
+
+    /// 是否跟随符号链接（默认跟随）
+    #[arg(long, action = clap::ArgAction::SetTrue, default_value_t = true)]
+    follow_links: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -104,13 +108,14 @@ fn main() -> anyhow::Result<()> {
         let path = Path::new(&token);
         if path.is_dir() {
             // 目录：递归匹配所有文件，或受 --ext 限制
-            if let Err(err) = collect_dir(path, args.ext.as_deref(), &mut files) {
+            if let Err(err) = collect_dir(path, args.ext.as_deref(), &mut files, args.follow_links)
+            {
                 eprintln!("警告: 目录遍历失败 {token}: {err}");
             }
             continue;
         }
 
-        match expand_glob(&token) {
+        match expand_glob(&token, args.follow_links) {
             Ok(paths) => {
                 for path in paths {
                     if path.is_file() {
@@ -182,9 +187,10 @@ fn collect_dir(
     dir: &Path,
     exts: Option<&str>,
     files: &mut BTreeSet<PathBuf>,
+    follow_links: bool,
 ) -> anyhow::Result<()> {
     let walker = GlobWalkerBuilder::from_patterns(dir, &["**/*"])
-        .follow_links(true)
+        .follow_links(follow_links)
         .case_insensitive(false)
         .build()?;
     for entry in walker.filter_map(|e| e.ok()) {
@@ -304,14 +310,14 @@ struct FileEntry {
     mtime: Option<SystemTime>,
 }
 
-fn expand_glob(pattern: &str) -> anyhow::Result<Vec<PathBuf>> {
+fn expand_glob(pattern: &str, follow_links: bool) -> anyhow::Result<Vec<PathBuf>> {
     let has_glob = pattern.contains('*') || pattern.contains('?') || pattern.contains('[');
     if !has_glob {
         return Ok(vec![PathBuf::from(pattern)]);
     }
 
     let walker = GlobWalkerBuilder::from_patterns(".", &[pattern])
-        .follow_links(true)
+        .follow_links(follow_links)
         .case_insensitive(false)
         .build()?;
     Ok(walker
