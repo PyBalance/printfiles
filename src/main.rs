@@ -40,6 +40,10 @@ struct Args {
     /// 控制相对路径显示时的基目录
     #[arg(long)]
     relative_from: Option<PathBuf>,
+
+    /// 最大文件大小（字节），超过则跳过
+    #[arg(long)]
+    max_size: Option<u64>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,6 +105,22 @@ fn main() -> anyhow::Result<()> {
     for path in files {
         let rel = rel_display(&path, relative_base.as_deref());
         writeln!(out, "==={}===", rel)?;
+        if let Some(limit) = args.max_size {
+            if let Some(size) = file_len(&path)? {
+                if size > limit {
+                    eprintln!(
+                        "提示: 跳过 {} (size={} > max_size={})",
+                        path.display(),
+                        size,
+                        limit
+                    );
+                    writeln!(out, "(skipped: file exceeds max size)")?;
+                    writeln!(out, "===end of '{}'===", rel)?;
+                    continue;
+                }
+            }
+        }
+
         if let Err(err) = read_and_write(&path, args.reader, &mut out) {
             eprintln!("错误: 读取失败 {}: {err}", path.display());
             had_error = true;
@@ -184,6 +204,14 @@ fn resolve_relative_base(from: Option<&PathBuf>) -> anyhow::Result<Option<PathBu
 
     let cwd = std::env::current_dir()?;
     Ok(Some(cwd.join(base)))
+}
+
+fn file_len(path: &Path) -> anyhow::Result<Option<u64>> {
+    match path.metadata() {
+        Ok(meta) => Ok(Some(meta.len())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
 
 fn ext_match(path: &Path, exts_csv: &str) -> bool {
@@ -336,5 +364,11 @@ mod tests {
         let base = std::env::temp_dir().join("rel-display-base");
         let path = base.join("project/file.txt");
         assert_eq!(rel_display(&path, Some(&base)), "project/file.txt");
+    }
+
+    #[test]
+    fn file_len_handles_missing_file() {
+        let path = Path::new("unlikely_missing_file");
+        assert!(file_len(path).unwrap().is_none());
     }
 }

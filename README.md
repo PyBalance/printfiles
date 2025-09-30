@@ -51,6 +51,8 @@ Key options:
   extensions (comma separated, case-insensitive)
 - `--relative-from <dir>`: display headers relative to the provided directory;
   paths outside the directory fall back to the current working directory
+- `--max-size <bytes>`: skip files larger than the given number of bytes (with a
+  notice on stderr and a placeholder in output)
 
 ### Examples
 
@@ -72,6 +74,9 @@ printfiles reports docs --ext md,docx --reader auto
 
 # Rebase headers relative to a different root
 printfiles src/**/*.rs --relative-from src
+
+# Skip files larger than 1 MiB
+printfiles logs/**/*.log --max-size 1048576
 ```
 
 ## Exit Codes

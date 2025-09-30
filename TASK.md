@@ -92,7 +92,7 @@
 * [ ] 可选/扩展功能（Roadmap）
 
   * [x] `--relative-from <dir>`：指定相对根目录。
-  * [ ] `--max-size <bytes>`：跳过大文件并提示。
+  * [x] `--max-size <bytes>`：跳过大文件并提示。
   * [ ] `--jobs <n>`：并行读取（注意输出顺序需要缓冲后统一打印）。
   * [ ] `--binary=skip|hex|base64`：二进制文件策略。
   * [ ] `--sort name|size|mtime`：排序策略可选。

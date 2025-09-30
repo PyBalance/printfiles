@@ -58,6 +58,31 @@ fn exit_code_is_two_when_no_matches() -> anyhow::Result<()> {
 }
 
 #[test]
+fn max_size_skips_large_files() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    let content = "x".repeat(32);
+    temp.child("files/big.txt").write_str(&content)?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["files", "--max-size", "10"]);
+
+    let output = cmd.assert().success().get_output().clone();
+
+    let stdout = String::from_utf8(output.stdout.clone())?;
+    assert_eq!(
+        stdout,
+        "===files/big.txt===\n(skipped: file exceeds max size)\n===end of 'files/big.txt'===\n"
+    );
+
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("提示: 跳过"));
+    assert!(stderr.contains("max_size=10"));
+
+    Ok(())
+}
+
+#[test]
 fn relative_from_rebases_output() -> anyhow::Result<()> {
     let temp = assert_fs::TempDir::new()?;
     temp.child("workspace/src/lib.rs").write_str("lib\n")?;
