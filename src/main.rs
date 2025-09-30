@@ -69,8 +69,16 @@ struct Args {
     sort: SortKey,
 
     /// 是否跟随符号链接（默认跟随）
-    #[arg(long, action = clap::ArgAction::SetTrue, default_value_t = true)]
+    #[arg(long, default_value_t = true)]
     follow_links: bool,
+
+    /// 输出详细日志
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    verbose: bool,
+
+    /// 安静模式，仅输出最终结果
+    #[arg(long, action = clap::ArgAction::SetTrue)]
+    quiet: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -82,6 +90,8 @@ enum SortKey {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    let logger = Logger::new(args.verbose, args.quiet);
 
     let relative_base = resolve_relative_base(args.relative_from.as_ref())?;
 
@@ -97,7 +107,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if tokens.is_empty() {
-        eprintln!("（未匹配到任何文件）");
+        logger.warn("（未匹配到任何文件）");
         std::process::exit(2);
     }
 
@@ -110,7 +120,7 @@ fn main() -> anyhow::Result<()> {
             // 目录：递归匹配所有文件，或受 --ext 限制
             if let Err(err) = collect_dir(path, args.ext.as_deref(), &mut files, args.follow_links)
             {
-                eprintln!("警告: 目录遍历失败 {token}: {err}");
+                logger.warn(&format!("目录遍历失败 {token}: {err}"));
             }
             continue;
         }
@@ -124,13 +134,13 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Err(err) => {
-                eprintln!("警告: 模式无效或没有匹配: {err}");
+                logger.warn(&format!("模式无效或没有匹配: {err}"));
             }
         }
     }
 
     if files.is_empty() {
-        eprintln!("（未匹配到任何文件）");
+        logger.warn("（未匹配到任何文件）");
         std::process::exit(2);
     }
 
@@ -151,16 +161,17 @@ fn main() -> anyhow::Result<()> {
     for entry in entries {
         let path = entry.path;
         let rel = rel_display(&path, relative_base.as_deref());
+        logger.info(&format!("处理文件: {}", rel));
         writeln!(out, "==={}===", rel)?;
         if let Some(limit) = args.max_size {
             if let Some(size) = entry.len {
                 if size > limit {
-                    eprintln!(
+                    logger.warn(&format!(
                         "提示: 跳过 {} (size={} > max_size={})",
                         path.display(),
                         size,
                         limit
-                    );
+                    ));
                     writeln!(out, "(skipped: file exceeds max size)")?;
                     writeln!(out, "===end of '{}'===", rel)?;
                     continue;
@@ -168,8 +179,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        if let Err(err) = read_and_write(&path, args.reader, args.binary, &mut out) {
-            eprintln!("错误: 读取失败 {}: {err}", path.display());
+        if let Err(err) = read_and_write(&path, args.reader, args.binary, &logger, &mut out) {
+            logger.error(&format!("错误: 读取失败 {}: {err}", path.display()));
             had_error = true;
         }
         writeln!(out, "===end of '{}'===", rel)?;
@@ -330,25 +341,31 @@ fn read_and_write<W: Write>(
     path: &Path,
     reader: Reader,
     binary: BinaryStrategy,
+    logger: &Logger,
     mut out: W,
 ) -> anyhow::Result<()> {
     match reader {
-        Reader::Text => write_text(path, binary, &mut out),
-        Reader::Textutil => write_textutil_then_fallback(path, binary, &mut out),
+        Reader::Text => write_text(path, binary, logger, &mut out),
+        Reader::Textutil => write_textutil_then_fallback(path, binary, logger, &mut out),
         Reader::Auto => {
             if should_use_textutil(path) {
-                write_textutil_then_fallback(path, binary, &mut out)
+                write_textutil_then_fallback(path, binary, logger, &mut out)
             } else {
-                write_text(path, binary, &mut out)
+                write_text(path, binary, logger, &mut out)
             }
         }
     }
 }
 
-fn write_text<W: Write>(path: &Path, binary: BinaryStrategy, out: &mut W) -> anyhow::Result<()> {
+fn write_text<W: Write>(
+    path: &Path,
+    binary: BinaryStrategy,
+    logger: &Logger,
+    out: &mut W,
+) -> anyhow::Result<()> {
     match fs::read(path) {
         Ok(bytes) => {
-            if handle_binary(path, &bytes, binary, out)? {
+            if handle_binary(path, &bytes, binary, logger, out)? {
                 return Ok(());
             }
             // 尽量用 UTF-8 显示，非 UTF-8 时采用有损转换
@@ -365,6 +382,7 @@ fn write_text<W: Write>(path: &Path, binary: BinaryStrategy, out: &mut W) -> any
 fn write_textutil_then_fallback<W: Write>(
     path: &Path,
     binary: BinaryStrategy,
+    logger: &Logger,
     out: &mut W,
 ) -> anyhow::Result<()> {
     if which::which("textutil").is_ok() {
@@ -380,27 +398,27 @@ fn write_textutil_then_fallback<W: Write>(
                 return Ok(());
             }
             Ok(outp) => {
-                eprintln!(
+                logger.warn(&format!(
                     "警告: textutil 处理失败 ({}), 回退到文本读取: {}",
                     outp.status,
                     path.display()
-                );
+                ));
             }
             Err(e) => {
-                eprintln!(
+                logger.warn(&format!(
                     "警告: textutil 调用异常 ({}), 回退到文本读取: {}",
                     e,
                     path.display()
-                );
+                ));
             }
         }
     } else {
-        eprintln!(
+        logger.warn(&format!(
             "提示: 未检测到 textutil，回退到文本读取。文件: {}",
             path.display()
-        );
+        ));
     }
-    write_text(path, binary, out)
+    write_text(path, binary, logger, out)
 }
 
 fn should_use_textutil(path: &Path) -> bool {
@@ -421,6 +439,7 @@ fn handle_binary<W: Write>(
     path: &Path,
     bytes: &[u8],
     strategy: BinaryStrategy,
+    logger: &Logger,
     out: &mut W,
 ) -> anyhow::Result<bool> {
     if !is_probably_binary(bytes) || matches!(strategy, BinaryStrategy::Print) {
@@ -441,12 +460,46 @@ fn handle_binary<W: Write>(
         }
         BinaryStrategy::Print => unreachable!(),
     }
-    eprintln!("提示: 二进制文件按 {:?} 处理: {}", strategy, path.display());
+    logger.warn(&format!(
+        "提示: 二进制文件按 {:?} 处理: {}",
+        strategy,
+        path.display()
+    ));
     Ok(true)
 }
 
 fn is_probably_binary(bytes: &[u8]) -> bool {
     bytes.contains(&0)
+}
+
+#[derive(Clone)]
+struct Logger {
+    verbose: bool,
+    quiet: bool,
+}
+
+impl Logger {
+    fn new(verbose: bool, quiet: bool) -> Self {
+        Self { verbose, quiet }
+    }
+
+    fn info(&self, msg: &str) {
+        if self.quiet || !self.verbose {
+            return;
+        }
+        eprintln!("{}", msg);
+    }
+
+    fn warn(&self, msg: &str) {
+        if self.quiet {
+            return;
+        }
+        eprintln!("{}", msg);
+    }
+
+    fn error(&self, msg: &str) {
+        eprintln!("{}", msg);
+    }
 }
 
 #[cfg(test)]

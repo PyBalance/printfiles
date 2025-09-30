@@ -97,7 +97,7 @@
   * [x] `--binary=skip|hex|base64`：二进制文件策略。
   * [x] `--sort name|size|mtime`：排序策略可选。
   * [x] `--follow-links/--no-follow-links`：符号链接策略切换。
-  * [ ] `--quiet`/`--verbose`：日志级别。
+  * [x] `--quiet`/`--verbose`：日志级别。
   * [ ] shell 补全与 man page（`clap_complete` / `clap_mangen`）。
 
 * [ ] 最终验收

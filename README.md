@@ -57,6 +57,9 @@ Key options:
   handled (skip, hex dump, Base64, or force text)
 - `--sort <name|size|mtime>`: reorder matched files by path, byte size, or
   modified time (ascending)
+- `--follow-links[=true|false]`: choose whether directory/glob searches follow
+  symbolic links (default: true)
+- `--quiet` / `--verbose`: control logging noise on stderr
 
 ### Examples
 
@@ -87,6 +90,9 @@ printfiles assets/**/*.bin --binary hex
 
 # Sort results by file size instead of name
 printfiles logs/**/*.log --sort size
+
+# Silence warnings while still producing content
+printfiles logs/**/*.log --max-size 1024 --quiet
 ```
 
 ## Exit Codes

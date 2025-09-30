@@ -154,6 +154,24 @@ fn sort_by_size_changes_order() -> anyhow::Result<()> {
 }
 
 #[test]
+fn quiet_suppresses_warnings() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    temp.child("files/big.log").write_str(&"x".repeat(32))?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["files", "--max-size", "10", "--quiet"]);
+
+    let output = cmd.assert().success().get_output().clone();
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("(skipped: file exceeds max size)"));
+
+    Ok(())
+}
+
+#[test]
 fn relative_from_rebases_output() -> anyhow::Result<()> {
     let temp = assert_fs::TempDir::new()?;
     temp.child("workspace/src/lib.rs").write_str("lib\n")?;
