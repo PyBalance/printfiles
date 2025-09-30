@@ -56,3 +56,24 @@ fn exit_code_is_two_when_no_matches() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn relative_from_rebases_output() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    temp.child("workspace/src/lib.rs").write_str("lib\n")?;
+    temp.child("workspace/docs/readme.md").write_str("doc\n")?;
+
+    let workspace = temp.child("workspace");
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(workspace.path())
+        .args(["src/**/*.rs", "docs/*.md", "--relative-from", "src"]);
+
+    let stdout = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(stdout)?;
+
+    let expected = "===docs/readme.md===\ndoc\n===end of 'docs/readme.md'===\n===lib.rs===\nlib\n===end of 'lib.rs'===\n";
+    assert_eq!(text, expected);
+
+    Ok(())
+}

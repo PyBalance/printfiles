@@ -36,10 +36,16 @@ struct Args {
     /// 若传入目录，是否仅限这些扩展（逗号分隔，如 "rs,md"）。
     #[arg(long)]
     ext: Option<String>,
+
+    /// 控制相对路径显示时的基目录
+    #[arg(long)]
+    relative_from: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    let relative_base = resolve_relative_base(args.relative_from.as_ref())?;
 
     // 解析 items：支持空格和逗号混合
     let mut tokens: Vec<String> = Vec::new();
@@ -93,7 +99,7 @@ fn main() -> anyhow::Result<()> {
     let mut had_error = false;
 
     for path in files {
-        let rel = rel_display(&path);
+        let rel = rel_display(&path, relative_base.as_deref());
         writeln!(out, "==={}===", rel)?;
         if let Err(err) = read_and_write(&path, args.reader, &mut out) {
             eprintln!("错误: 读取失败 {}: {err}", path.display());
@@ -138,18 +144,46 @@ fn normalize(p: &Path) -> PathBuf {
     PathBuf::from(p)
 }
 
-fn rel_display(p: &Path) -> String {
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Ok(stripped) = p.strip_prefix(&cwd) {
+fn rel_display(p: &Path, base: Option<&Path>) -> String {
+    let absolute = if p.is_absolute() {
+        p.to_path_buf()
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(p)
+    } else {
+        p.to_path_buf()
+    };
+
+    if let Some(base) = base {
+        if let Ok(stripped) = absolute.strip_prefix(base) {
             return strip_dot_slash(stripped).to_string();
         }
     }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(stripped) = absolute.strip_prefix(&cwd) {
+            return strip_dot_slash(stripped).to_string();
+        }
+    }
+
     strip_dot_slash(p).to_string()
 }
 
 fn strip_dot_slash(p: &Path) -> String {
     let s = p.to_string_lossy();
     s.strip_prefix("./").unwrap_or(&s).to_string()
+}
+
+fn resolve_relative_base(from: Option<&PathBuf>) -> anyhow::Result<Option<PathBuf>> {
+    let Some(base) = from else {
+        return Ok(None);
+    };
+
+    if base.is_absolute() {
+        return Ok(Some(base.clone()));
+    }
+
+    let cwd = std::env::current_dir()?;
+    Ok(Some(cwd.join(base)))
 }
 
 fn ext_match(path: &Path, exts_csv: &str) -> bool {
@@ -288,12 +322,19 @@ mod tests {
     fn rel_display_strips_current_dir_prefix() {
         let cwd = std::env::current_dir().expect("cwd");
         let path = cwd.join("foo").join("bar.txt");
-        assert_eq!(rel_display(&path), "foo/bar.txt");
+        assert_eq!(rel_display(&path, None), "foo/bar.txt");
     }
 
     #[test]
     fn strip_dot_slash_removes_prefix() {
         let path = Path::new("./nested/value");
         assert_eq!(strip_dot_slash(path), "nested/value");
+    }
+
+    #[test]
+    fn rel_display_uses_custom_base() {
+        let base = std::env::temp_dir().join("rel-display-base");
+        let path = base.join("project/file.txt");
+        assert_eq!(rel_display(&path, Some(&base)), "project/file.txt");
     }
 }

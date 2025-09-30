@@ -49,6 +49,8 @@ Key options:
 - `--reader <text|textutil|auto>` (default: `text`)
 - `--ext <csv>`: limit files discovered via directory arguments to the listed
   extensions (comma separated, case-insensitive)
+- `--relative-from <dir>`: display headers relative to the provided directory;
+  paths outside the directory fall back to the current working directory
 
 ### Examples
 
@@ -67,6 +69,9 @@ printfiles reports/**/*.docx --reader textutil
 
 # Auto-detect rich-text formats while still filtering extensions on directories
 printfiles reports docs --ext md,docx --reader auto
+
+# Rebase headers relative to a different root
+printfiles src/**/*.rs --relative-from src
 ```
 
 ## Exit Codes
