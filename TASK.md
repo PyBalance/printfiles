@@ -19,39 +19,39 @@
 
 * [ ] CLI 设计与实现
 
-  * [ ] 位置参数 `items: Vec<String>`：允许空格/逗号混合；如 `"src/**/*.rs,docs/*.md" "tests/*.rs"`。
-  * [ ] 选项 `--reader {text,textutil,auto}`，默认 `text`。
-  * [ ] 选项 `--ext rs,md`：仅在“参数是目录”时生效，用于扩展名过滤。
-  * [ ] 友好错误消息与用法示例；找不到匹配时打印提示并返回码 2。
-  * [ ] 退出码规划：0=成功；1=参数/其他错误；2=无匹配。
+  * [x] 位置参数 `items: Vec<String>`：允许空格/逗号混合；如 `"src/**/*.rs,docs/*.md" "tests/*.rs"`。
+  * [x] 选项 `--reader {text,textutil,auto}`，默认 `text`。
+  * [x] 选项 `--ext rs,md`：仅在“参数是目录”时生效，用于扩展名过滤。
+  * [x] 友好错误消息与用法示例；找不到匹配时打印提示并返回码 2。
+  * [x] 退出码规划：0=成功；1=参数/其他错误；2=无匹配。
 
 * [ ] 匹配与收集逻辑
 
-  * [ ] 参数拆分：将所有参数拼接后按逗号再切分，去空白。
-  * [ ] 对**目录参数**：用 `globwalk` 的 `**/*` 递归遍历，应用 `--ext` 过滤，仅收集文件。
-  * [ ] 对**普通/带 `**` 的 pattern**：使用 `globwalk` 进行跨平台 glob 展开并收集文件。
-  * [ ] 去重与排序：使用 `BTreeSet<PathBuf>` 确保有序且去重。
-  * [ ] 路径显示：以当前工作目录为基准生成相对路径，并去掉开头的 `./`。
+  * [x] 参数拆分：将所有参数拼接后按逗号再切分，去空白。
+  * [x] 对**目录参数**：用 `globwalk` 的 `**/*` 递归遍历，应用 `--ext` 过滤，仅收集文件。
+  * [x] 对**普通/带 `**` 的 pattern**：使用 `globwalk` 进行跨平台 glob 展开并收集文件。
+  * [x] 去重与排序：使用 `BTreeSet<PathBuf>` 确保有序且去重。
+  * [x] 路径显示：以当前工作目录为基准生成相对路径，并去掉开头的 `./`。
 
 * [ ] 读取与输出
 
-  * [ ] 标准输出前后分别打印：`===<relpath>===` 与 `===end of '<relpath>'===`。
-  * [ ] `text` 读取：`fs::read` → `String::from_utf8_lossy`（兼容非 UTF-8）。
-  * [ ] `textutil` 读取：`which::which("textutil")` 检测；`textutil -convert txt -stdout <file>`，失败则回退到文本读取。
-  * [ ] `auto` 模式：针对 `rtf/rtfd/doc/docx/html/htm/odt/webarchive` 等扩展优先走 `textutil`。
-  * [ ] 使用 `BufWriter<std::io::stdout()>` 降低系统调用次数。
+  * [x] 标准输出前后分别打印：`===<relpath>===` 与 `===end of '<relpath>'===`。
+  * [x] `text` 读取：`fs::read` → `String::from_utf8_lossy`（兼容非 UTF-8）。
+  * [x] `textutil` 读取：`which::which("textutil")` 检测；`textutil -convert txt -stdout <file>`，失败则回退到文本读取。
+  * [x] `auto` 模式：针对 `rtf/rtfd/doc/docx/html/htm/odt/webarchive` 等扩展优先走 `textutil`。
+  * [x] 使用 `BufWriter<std::io::stdout()>` 降低系统调用次数。
 
 * [ ] 错误处理与健壮性
 
-  * [ ] 打开/读取失败（权限/损坏）时提供包含路径的错误信息并不中断其他文件（可配置：遇错继续）。
-  * [ ] 对无效 glob 或空匹配给出告警但不中止整个流程。
+  * [x] 打开/读取失败（权限/损坏）时提供包含路径的错误信息并不中断其他文件（可配置：遇错继续）。
+  * [x] 对无效 glob 或空匹配给出告警但不中止整个流程。
   * [ ] 软/硬限制：对超大文件可考虑后续加入 `--max-size`（本版先不实现，留扩展位）。
 
 * [ ] 跨平台注意点
 
-  * [ ] macOS：`textutil` 可用；其它平台自动回退。
+  * [x] macOS：`textutil` 可用；其它平台自动回退。
   * [ ] Windows 路径分隔符显示为相对路径但不强制统一（必要时考虑 `path_slash::PathExt` 转 `/`）。
-  * [ ] 符号链接：默认 `follow_links(true)`；如需严格区分可增加选项。
+  * [x] 符号链接：默认 `follow_links(true)`；如需严格区分可增加选项。
 
 * [ ] 测试计划（单元 + 集成）
 
