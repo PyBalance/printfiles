@@ -57,6 +57,8 @@ Key options:
   handled (skip, hex dump, Base64, or force text)
 - `--sort <name|size|mtime>`: reorder matched files by path, byte size, or
   modified time (ascending)
+- `--divider <equals|triple-backtick|xml-tag>`: choose header/footer style for
+  each file while always showing the path
 - `--follow-links[=true|false]`: choose whether directory/glob searches follow
   symbolic links (default: true)
 - `--quiet` / `--verbose`: control logging noise on stderr
@@ -90,6 +92,9 @@ printfiles assets/**/*.bin --binary hex
 
 # Sort results by file size instead of name
 printfiles logs/**/*.log --sort size
+
+# Emit code-block dividers for markdown-friendly output
+printfiles src/**/*.rs --divider triple-backtick
 
 # Silence warnings while still producing content
 printfiles logs/**/*.log --max-size 1024 --quiet

@@ -40,8 +40,8 @@
   * [x] `textutil` 读取：`which::which("textutil")` 检测；`textutil -convert txt -stdout <file>`，失败则回退到文本读取。
   * [x] `auto` 模式：针对 `rtf/rtfd/doc/docx/html/htm/odt/webarchive` 等扩展优先走 `textutil`。
   * [x] 使用 `BufWriter<std::io::stdout()>` 降低系统调用次数。
-  * [ ] `--divider` 选项：提供 `equals`（默认）、`triple-backtick`、`xml-tag` 三种输出分隔符，且都包含路径+文件名。
-  * [ ] 在 `===end of 'path'===` 之前插入换行，保证内容与结尾分隔行之间有空行。
+  * [x] `--divider` 选项：提供 `equals`（默认）、`triple-backtick`、`xml-tag` 三种输出分隔符，且都包含路径+文件名。
+  * [x] 在 `===end of 'path'===` 之前插入换行，保证内容与结尾分隔行之间有空行。
 
 * [ ] 错误处理与健壮性
 

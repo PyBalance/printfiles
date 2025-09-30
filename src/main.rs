@@ -32,6 +32,34 @@ enum BinaryStrategy {
     Print,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Divider {
+    /// 形如 ===path=== / ===end of 'path'===
+    Equals,
+    /// 形如 ``` path/to/file
+    TripleBacktick,
+    /// 形如 <file path="path/to/file">
+    XmlTag,
+}
+
+impl Divider {
+    fn header(self, rel: &str) -> String {
+        match self {
+            Divider::Equals => format!("==={}===", rel),
+            Divider::TripleBacktick => format!("``` {}", rel),
+            Divider::XmlTag => format!("<file path=\"{}\">", escape_xml_attr(rel)),
+        }
+    }
+
+    fn footer(self, rel: &str) -> String {
+        match self {
+            Divider::Equals => format!("===end of '{}'===", rel),
+            Divider::TripleBacktick => "```".to_string(),
+            Divider::XmlTag => "</file>".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "printfiles",
@@ -71,6 +99,10 @@ struct Args {
     /// 是否跟随符号链接（默认跟随）
     #[arg(long, default_value_t = true)]
     follow_links: bool,
+
+    /// 输出分隔符风格：equals(默认)/triple-backtick/xml-tag
+    #[arg(long, value_enum, default_value_t = Divider::Equals)]
+    divider: Divider,
 
     /// 输出详细日志
     #[arg(long, action = clap::ArgAction::SetTrue)]
@@ -162,7 +194,10 @@ fn main() -> anyhow::Result<()> {
         let path = entry.path;
         let rel = rel_display(&path, relative_base.as_deref());
         logger.info(&format!("处理文件: {}", rel));
-        writeln!(out, "==={}===", rel)?;
+
+        let header = args.divider.header(&rel);
+        writeln!(out, "{}", header)?;
+
         if let Some(limit) = args.max_size {
             if let Some(size) = entry.len {
                 if size > limit {
@@ -173,17 +208,28 @@ fn main() -> anyhow::Result<()> {
                         limit
                     ));
                     writeln!(out, "(skipped: file exceeds max size)")?;
-                    writeln!(out, "===end of '{}'===", rel)?;
+                    let footer = args.divider.footer(&rel);
+                    writeln!(out, "{}", footer)?;
                     continue;
                 }
             }
         }
 
-        if let Err(err) = read_and_write(&path, args.reader, args.binary, &logger, &mut out) {
-            logger.error(&format!("错误: 读取失败 {}: {err}", path.display()));
-            had_error = true;
+        match read_and_write(&path, args.reader, args.binary, &logger, &mut out) {
+            Ok(ended_with_newline) => {
+                if !ended_with_newline {
+                    writeln!(out)?;
+                }
+            }
+            Err(err) => {
+                logger.error(&format!("错误: 读取失败 {}: {err}", path.display()));
+                had_error = true;
+                writeln!(out)?;
+            }
         }
-        writeln!(out, "===end of '{}'===", rel)?;
+
+        let footer = args.divider.footer(&rel);
+        writeln!(out, "{}", footer)?;
     }
 
     out.flush()?;
@@ -343,7 +389,7 @@ fn read_and_write<W: Write>(
     binary: BinaryStrategy,
     logger: &Logger,
     mut out: W,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     match reader {
         Reader::Text => write_text(path, binary, logger, &mut out),
         Reader::Textutil => write_textutil_then_fallback(path, binary, logger, &mut out),
@@ -362,16 +408,16 @@ fn write_text<W: Write>(
     binary: BinaryStrategy,
     logger: &Logger,
     out: &mut W,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     match fs::read(path) {
         Ok(bytes) => {
             if handle_binary(path, &bytes, binary, logger, out)? {
-                return Ok(());
+                return Ok(true);
             }
             // 尽量用 UTF-8 显示，非 UTF-8 时采用有损转换
             let s = String::from_utf8_lossy(&bytes);
             write!(out, "{}", s)?;
-            Ok(())
+            Ok(bytes.ends_with(b"\n"))
         }
         Err(e) => {
             anyhow::bail!("{}", e);
@@ -384,7 +430,7 @@ fn write_textutil_then_fallback<W: Write>(
     binary: BinaryStrategy,
     logger: &Logger,
     out: &mut W,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     if which::which("textutil").is_ok() {
         let output = Command::new("textutil")
             .arg("-convert")
@@ -395,7 +441,7 @@ fn write_textutil_then_fallback<W: Write>(
         match output {
             Ok(outp) if outp.status.success() => {
                 out.write_all(&outp.stdout)?;
-                return Ok(());
+                return Ok(outp.stdout.ends_with(b"\n"));
             }
             Ok(outp) => {
                 logger.warn(&format!(
@@ -470,6 +516,13 @@ fn handle_binary<W: Write>(
 
 fn is_probably_binary(bytes: &[u8]) -> bool {
     bytes.contains(&0)
+}
+
+fn escape_xml_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[derive(Clone)]

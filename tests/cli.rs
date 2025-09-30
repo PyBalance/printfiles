@@ -172,6 +172,43 @@ fn quiet_suppresses_warnings() -> anyhow::Result<()> {
 }
 
 #[test]
+fn divider_triple_backtick_wraps_content() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    temp.child("src/main.rs").write_str("fn main() {}")?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["src/main.rs", "--divider", "triple-backtick"]);
+
+    let stdout = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(stdout)?;
+
+    let expected = "``` src/main.rs\nfn main() {}\n```\n";
+    assert_eq!(text, expected);
+
+    Ok(())
+}
+
+#[test]
+fn divider_xml_tag_wraps_content() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    temp.child("templates/index.html")
+        .write_str("<h1>Hello</h1>\n")?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["templates/index.html", "--divider", "xml-tag"]);
+
+    let stdout = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(stdout)?;
+
+    let expected = "<file path=\"templates/index.html\">\n<h1>Hello</h1>\n</file>\n";
+    assert_eq!(text, expected);
+
+    Ok(())
+}
+
+#[test]
 fn relative_from_rebases_output() -> anyhow::Result<()> {
     let temp = assert_fs::TempDir::new()?;
     temp.child("workspace/src/lib.rs").write_str("lib\n")?;
