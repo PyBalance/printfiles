@@ -53,6 +53,8 @@ Key options:
   paths outside the directory fall back to the current working directory
 - `--max-size <bytes>`: skip files larger than the given number of bytes (with a
   notice on stderr and a placeholder in output)
+- `--binary <skip|hex|base64|print>`: control how likely-binary files are
+  handled (skip, hex dump, Base64, or force text)
 
 ### Examples
 
@@ -77,6 +79,9 @@ printfiles src/**/*.rs --relative-from src
 
 # Skip files larger than 1 MiB
 printfiles logs/**/*.log --max-size 1048576
+
+# Dump binary files as hex without skipping
+printfiles assets/**/*.bin --binary hex
 ```
 
 ## Exit Codes

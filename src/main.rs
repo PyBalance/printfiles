@@ -1,3 +1,5 @@
+use base64::engine::general_purpose::STANDARD as Base64;
+use base64::Engine;
 use clap::{Parser, ValueEnum};
 use globwalk::GlobWalkerBuilder;
 use std::collections::BTreeSet;
@@ -15,6 +17,18 @@ enum Reader {
     Textutil,
     /// 自动：对部分扩展名用 textutil，其它走 Text
     Auto,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum BinaryStrategy {
+    /// 跳过二进制文件
+    Skip,
+    /// 按十六进制输出
+    Hex,
+    /// 按 Base64 输出
+    Base64,
+    /// 强制按文本处理
+    Print,
 }
 
 #[derive(Debug, Parser)]
@@ -44,6 +58,10 @@ struct Args {
     /// 最大文件大小（字节），超过则跳过
     #[arg(long)]
     max_size: Option<u64>,
+
+    /// 当检测到可能是二进制文件时的处理策略
+    #[arg(long, value_enum, default_value_t = BinaryStrategy::Skip)]
+    binary: BinaryStrategy,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -121,7 +139,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        if let Err(err) = read_and_write(&path, args.reader, &mut out) {
+        if let Err(err) = read_and_write(&path, args.reader, args.binary, &mut out) {
             eprintln!("错误: 读取失败 {}: {err}", path.display());
             had_error = true;
         }
@@ -246,23 +264,31 @@ fn expand_glob(pattern: &str) -> anyhow::Result<Vec<PathBuf>> {
         .collect())
 }
 
-fn read_and_write<W: Write>(path: &Path, reader: Reader, mut out: W) -> anyhow::Result<()> {
+fn read_and_write<W: Write>(
+    path: &Path,
+    reader: Reader,
+    binary: BinaryStrategy,
+    mut out: W,
+) -> anyhow::Result<()> {
     match reader {
-        Reader::Text => write_text(path, &mut out),
-        Reader::Textutil => write_textutil_then_fallback(path, &mut out),
+        Reader::Text => write_text(path, binary, &mut out),
+        Reader::Textutil => write_textutil_then_fallback(path, binary, &mut out),
         Reader::Auto => {
             if should_use_textutil(path) {
-                write_textutil_then_fallback(path, &mut out)
+                write_textutil_then_fallback(path, binary, &mut out)
             } else {
-                write_text(path, &mut out)
+                write_text(path, binary, &mut out)
             }
         }
     }
 }
 
-fn write_text<W: Write>(path: &Path, out: &mut W) -> anyhow::Result<()> {
+fn write_text<W: Write>(path: &Path, binary: BinaryStrategy, out: &mut W) -> anyhow::Result<()> {
     match fs::read(path) {
         Ok(bytes) => {
+            if handle_binary(path, &bytes, binary, out)? {
+                return Ok(());
+            }
             // 尽量用 UTF-8 显示，非 UTF-8 时采用有损转换
             let s = String::from_utf8_lossy(&bytes);
             write!(out, "{}", s)?;
@@ -274,7 +300,11 @@ fn write_text<W: Write>(path: &Path, out: &mut W) -> anyhow::Result<()> {
     }
 }
 
-fn write_textutil_then_fallback<W: Write>(path: &Path, out: &mut W) -> anyhow::Result<()> {
+fn write_textutil_then_fallback<W: Write>(
+    path: &Path,
+    binary: BinaryStrategy,
+    out: &mut W,
+) -> anyhow::Result<()> {
     if which::which("textutil").is_ok() {
         let output = Command::new("textutil")
             .arg("-convert")
@@ -308,7 +338,7 @@ fn write_textutil_then_fallback<W: Write>(path: &Path, out: &mut W) -> anyhow::R
             path.display()
         );
     }
-    write_text(path, out)
+    write_text(path, binary, out)
 }
 
 fn should_use_textutil(path: &Path) -> bool {
@@ -323,6 +353,38 @@ fn should_use_textutil(path: &Path) -> bool {
         ext.as_str(),
         "rtf" | "rtfd" | "doc" | "docx" | "html" | "htm" | "odt" | "webarchive"
     )
+}
+
+fn handle_binary<W: Write>(
+    path: &Path,
+    bytes: &[u8],
+    strategy: BinaryStrategy,
+    out: &mut W,
+) -> anyhow::Result<bool> {
+    if !is_probably_binary(bytes) || matches!(strategy, BinaryStrategy::Print) {
+        return Ok(false);
+    }
+
+    match strategy {
+        BinaryStrategy::Skip => {
+            writeln!(out, "(skipped binary file)")?;
+        }
+        BinaryStrategy::Hex => {
+            let encoded = hex::encode(bytes);
+            writeln!(out, "{}", encoded)?;
+        }
+        BinaryStrategy::Base64 => {
+            let encoded = Base64.encode(bytes);
+            writeln!(out, "{}", encoded)?;
+        }
+        BinaryStrategy::Print => unreachable!(),
+    }
+    eprintln!("提示: 二进制文件按 {:?} 处理: {}", strategy, path.display());
+    Ok(true)
+}
+
+fn is_probably_binary(bytes: &[u8]) -> bool {
+    bytes.contains(&0)
 }
 
 #[cfg(test)]
@@ -370,5 +432,11 @@ mod tests {
     fn file_len_handles_missing_file() {
         let path = Path::new("unlikely_missing_file");
         assert!(file_len(path).unwrap().is_none());
+    }
+
+    #[test]
+    fn binary_detection_by_null_byte() {
+        assert!(is_probably_binary(b"abc\0def"));
+        assert!(!is_probably_binary(b"plain text"));
     }
 }

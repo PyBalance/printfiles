@@ -83,6 +83,46 @@ fn max_size_skips_large_files() -> anyhow::Result<()> {
 }
 
 #[test]
+fn binary_skip_writes_placeholder() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    let bytes = [0u8, 1, 2, 3];
+    temp.child("bin/image.bin").write_binary(&bytes)?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path()).arg("bin");
+
+    let output = cmd.assert().success().get_output().clone();
+    let stdout = String::from_utf8(output.stdout.clone())?;
+    assert_eq!(
+        stdout,
+        "===bin/image.bin===\n(skipped binary file)\n===end of 'bin/image.bin'===\n"
+    );
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("二进制文件按 Skip 处理"));
+
+    Ok(())
+}
+
+#[test]
+fn binary_hex_outputs_encoded_bytes() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    let bytes = [0u8, 1, 2, 255];
+    temp.child("bin/data.bin").write_binary(&bytes)?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["bin/data.bin", "--binary", "hex"]);
+
+    let output = cmd.assert().success().get_output().clone();
+    let stdout = String::from_utf8(output.stdout.clone())?;
+    assert!(stdout.contains("000102ff"));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("二进制文件按 Hex 处理"));
+
+    Ok(())
+}
+
+#[test]
 fn relative_from_rebases_output() -> anyhow::Result<()> {
     let temp = assert_fs::TempDir::new()?;
     temp.child("workspace/src/lib.rs").write_str("lib\n")?;
