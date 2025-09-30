@@ -123,6 +123,37 @@ fn binary_hex_outputs_encoded_bytes() -> anyhow::Result<()> {
 }
 
 #[test]
+fn sort_by_size_changes_order() -> anyhow::Result<()> {
+    let temp = assert_fs::TempDir::new()?;
+    temp.child("logs/a.log").write_str("short\n")?;
+    temp.child("logs/b.log").write_str("a bit longer\n")?;
+    temp.child("logs/c.log")
+        .write_str("longest line of them all\n")?;
+
+    let mut cmd = Command::cargo_bin("printfiles")?;
+    cmd.current_dir(temp.path())
+        .args(["logs/*.log", "--sort", "size"]);
+
+    let stdout = cmd.assert().success().get_output().stdout.clone();
+    let text = String::from_utf8(stdout)?;
+
+    let expected_order = ["logs/a.log", "logs/b.log", "logs/c.log"];
+    let mut found = Vec::new();
+    for line in text.lines() {
+        if let Some(stripped) = line.strip_prefix("===") {
+            if let Some(name) = stripped.strip_suffix("===") {
+                if name.ends_with(".log") {
+                    found.push(name.to_string());
+                }
+            }
+        }
+    }
+    assert_eq!(found, expected_order);
+
+    Ok(())
+}
+
+#[test]
 fn relative_from_rebases_output() -> anyhow::Result<()> {
     let temp = assert_fs::TempDir::new()?;
     temp.child("workspace/src/lib.rs").write_str("lib\n")?;

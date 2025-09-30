@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Reader {
@@ -62,6 +63,17 @@ struct Args {
     /// 当检测到可能是二进制文件时的处理策略
     #[arg(long, value_enum, default_value_t = BinaryStrategy::Skip)]
     binary: BinaryStrategy,
+
+    /// 排序策略：按名称、大小或修改时间
+    #[arg(long, value_enum, default_value_t = SortKey::Name)]
+    sort: SortKey,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum SortKey {
+    Name,
+    Size,
+    Mtime,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -117,14 +129,26 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(2);
     }
 
+    let mut entries: Vec<FileEntry> = files
+        .into_iter()
+        .map(|path| {
+            let len = file_len(&path).ok().flatten();
+            let mtime = metadata_mtime(&path).ok().flatten();
+            FileEntry { path, len, mtime }
+        })
+        .collect();
+
+    sort_entries(&mut entries, args.sort);
+
     let mut out = io::BufWriter::new(io::stdout());
     let mut had_error = false;
 
-    for path in files {
+    for entry in entries {
+        let path = entry.path;
         let rel = rel_display(&path, relative_base.as_deref());
         writeln!(out, "==={}===", rel)?;
         if let Some(limit) = args.max_size {
-            if let Some(size) = file_len(&path)? {
+            if let Some(size) = entry.len {
                 if size > limit {
                     eprintln!(
                         "提示: 跳过 {} (size={} > max_size={})",
@@ -232,6 +256,32 @@ fn file_len(path: &Path) -> anyhow::Result<Option<u64>> {
     }
 }
 
+fn metadata_mtime(path: &Path) -> anyhow::Result<Option<SystemTime>> {
+    match path.metadata() {
+        Ok(meta) => Ok(meta.modified().ok()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn sort_entries(entries: &mut [FileEntry], key: SortKey) {
+    match key {
+        SortKey::Name => entries.sort_by(|a, b| a.path.cmp(&b.path)),
+        SortKey::Size => entries.sort_by(|a, b| {
+            a.len
+                .unwrap_or_default()
+                .cmp(&b.len.unwrap_or_default())
+                .then_with(|| a.path.cmp(&b.path))
+        }),
+        SortKey::Mtime => entries.sort_by(|a, b| {
+            a.mtime
+                .unwrap_or(SystemTime::UNIX_EPOCH)
+                .cmp(&b.mtime.unwrap_or(SystemTime::UNIX_EPOCH))
+                .then_with(|| a.path.cmp(&b.path))
+        }),
+    }
+}
+
 fn ext_match(path: &Path, exts_csv: &str) -> bool {
     let ext = path
         .extension()
@@ -246,6 +296,12 @@ fn ext_match(path: &Path, exts_csv: &str) -> bool {
         }
     }
     false
+}
+
+struct FileEntry {
+    path: PathBuf,
+    len: Option<u64>,
+    mtime: Option<SystemTime>,
 }
 
 fn expand_glob(pattern: &str) -> anyhow::Result<Vec<PathBuf>> {

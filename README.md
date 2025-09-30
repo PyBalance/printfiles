@@ -55,6 +55,8 @@ Key options:
   notice on stderr and a placeholder in output)
 - `--binary <skip|hex|base64|print>`: control how likely-binary files are
   handled (skip, hex dump, Base64, or force text)
+- `--sort <name|size|mtime>`: reorder matched files by path, byte size, or
+  modified time (ascending)
 
 ### Examples
 
@@ -82,6 +84,9 @@ printfiles logs/**/*.log --max-size 1048576
 
 # Dump binary files as hex without skipping
 printfiles assets/**/*.bin --binary hex
+
+# Sort results by file size instead of name
+printfiles logs/**/*.log --sort size
 ```
 
 ## Exit Codes
