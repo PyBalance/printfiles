@@ -262,3 +262,38 @@ fn should_use_textutil(path: &Path) -> bool {
         "rtf" | "rtfd" | "doc" | "docx" | "html" | "htm" | "odt" | "webarchive"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn ext_match_is_case_insensitive() {
+        assert!(ext_match(Path::new("foo.rs"), "rs,md"));
+        assert!(ext_match(Path::new("foo.RS"), "rs,md"));
+        assert!(!ext_match(Path::new("foo.txt"), "rs,md"));
+        assert!(!ext_match(Path::new("foo"), "rs"));
+    }
+
+    #[test]
+    fn should_use_textutil_recognizes_known_extensions() {
+        assert!(should_use_textutil(Path::new("doc.DOCX")));
+        assert!(should_use_textutil(Path::new("note.html")));
+        assert!(!should_use_textutil(Path::new("note.txt")));
+        assert!(!should_use_textutil(Path::new("noext")));
+    }
+
+    #[test]
+    fn rel_display_strips_current_dir_prefix() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let path = cwd.join("foo").join("bar.txt");
+        assert_eq!(rel_display(&path), "foo/bar.txt");
+    }
+
+    #[test]
+    fn strip_dot_slash_removes_prefix() {
+        let path = Path::new("./nested/value");
+        assert_eq!(strip_dot_slash(path), "nested/value");
+    }
+}
