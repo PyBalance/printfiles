@@ -100,6 +100,24 @@ struct Args {
     #[arg(long, default_value_t = true)]
     follow_links: bool,
 
+    /// 仅输出文件内容的前/后若干行。
+    /// 格式：N[:M] 表示前 N 行和后 M 行。
+    /// 不带值时等价于 5:3；不指定 M 时等价于 N:0。
+    ///
+    /// 示例：
+    ///   --clip        # 默认 5:3
+    ///   --clip 20     # 前 20 行
+    ///   --clip :10    # 后 10 行
+    ///   --clip 10:5   # 前 10 行 + 後 5 行
+    #[arg(
+        long,
+        short = 'c',
+        value_name = "N[:M]",
+        num_args = 0..=1,
+        default_missing_value = "5:3"
+    )]
+    clip: Option<String>,
+
     /// 输出分隔符风格：equals(默认)/triple-backtick/xml-tag
     #[arg(long, value_enum, default_value_t = Divider::Equals)]
     divider: Divider,
@@ -120,10 +138,55 @@ enum SortKey {
     Mtime,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ClipSpec {
+    head: usize,
+    tail: usize,
+}
+
+fn parse_clip_spec(raw: &str) -> anyhow::Result<ClipSpec> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Ok(ClipSpec { head: 5, tail: 3 });
+    }
+
+    let (head_str, tail_str_opt) = match s.split_once(':') {
+        Some((h, t)) => (h.trim(), Some(t.trim())),
+        None => (s, None),
+    };
+
+    let head = if head_str.is_empty() {
+        0
+    } else {
+        head_str.parse::<usize>().map_err(|e| {
+            anyhow::anyhow!("invalid --clip value (head part '{}'): {}", head_str, e)
+        })?
+    };
+
+    let tail = match tail_str_opt {
+        Some(t) if !t.is_empty() => t.parse::<usize>().map_err(|e| {
+            anyhow::anyhow!("invalid --clip value (tail part '{}'): {}", t, e)
+        })?,
+        _ => 0,
+    };
+
+    if head == 0 && tail == 0 {
+        // 0:0 没有意义，直接报错
+        anyhow::bail!("invalid --clip value '{}': head and tail cannot both be 0", raw);
+    }
+
+    Ok(ClipSpec { head, tail })
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let logger = Logger::new(args.verbose, args.quiet);
+
+    let clip_spec = match args.clip.as_deref() {
+        Some(raw) => Some(parse_clip_spec(raw)?),
+        None => None,
+    };
 
     let relative_base = resolve_relative_base(args.relative_from.as_ref())?;
 
@@ -215,7 +278,14 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        match read_and_write(&path, args.reader, args.binary, &logger, &mut out) {
+        match read_and_write(
+            &path,
+            args.reader,
+            args.binary,
+            clip_spec,
+            &logger,
+            &mut out,
+        ) {
             Ok(ended_with_newline) => {
                 if !ended_with_newline {
                     writeln!(out)?;
@@ -387,17 +457,18 @@ fn read_and_write<W: Write>(
     path: &Path,
     reader: Reader,
     binary: BinaryStrategy,
+    clip: Option<ClipSpec>,
     logger: &Logger,
     mut out: W,
 ) -> anyhow::Result<bool> {
     match reader {
-        Reader::Text => write_text(path, binary, logger, &mut out),
-        Reader::Textutil => write_textutil_then_fallback(path, binary, logger, &mut out),
+        Reader::Text => write_text(path, binary, clip, logger, &mut out),
+        Reader::Textutil => write_textutil_then_fallback(path, binary, clip, logger, &mut out),
         Reader::Auto => {
             if should_use_textutil(path) {
-                write_textutil_then_fallback(path, binary, logger, &mut out)
+                write_textutil_then_fallback(path, binary, clip, logger, &mut out)
             } else {
-                write_text(path, binary, logger, &mut out)
+                write_text(path, binary, clip, logger, &mut out)
             }
         }
     }
@@ -406,18 +477,24 @@ fn read_and_write<W: Write>(
 fn write_text<W: Write>(
     path: &Path,
     binary: BinaryStrategy,
+    clip: Option<ClipSpec>,
     logger: &Logger,
     out: &mut W,
 ) -> anyhow::Result<bool> {
     match fs::read(path) {
         Ok(bytes) => {
             if handle_binary(path, &bytes, binary, logger, out)? {
+                // 二进制按策略处理（skip/hex/base64），不再做截断
                 return Ok(true);
             }
             // 尽量用 UTF-8 显示，非 UTF-8 时采用有损转换
             let s = String::from_utf8_lossy(&bytes);
-            write!(out, "{}", s)?;
-            Ok(bytes.ends_with(b"\n"))
+            if let Some(clip) = clip {
+                write_clipped(&s, clip, out)
+            } else {
+                write!(out, "{}", s)?;
+                Ok(bytes.ends_with(b"\n"))
+            }
         }
         Err(e) => {
             anyhow::bail!("{}", e);
@@ -428,6 +505,7 @@ fn write_text<W: Write>(
 fn write_textutil_then_fallback<W: Write>(
     path: &Path,
     binary: BinaryStrategy,
+    clip: Option<ClipSpec>,
     logger: &Logger,
     out: &mut W,
 ) -> anyhow::Result<bool> {
@@ -440,8 +518,13 @@ fn write_textutil_then_fallback<W: Write>(
             .output();
         match output {
             Ok(outp) if outp.status.success() => {
-                out.write_all(&outp.stdout)?;
-                return Ok(outp.stdout.ends_with(b"\n"));
+                if let Some(clip) = clip {
+                    let s = String::from_utf8_lossy(&outp.stdout);
+                    return write_clipped(&s, clip, out);
+                } else {
+                    out.write_all(&outp.stdout)?;
+                    return Ok(outp.stdout.ends_with(b"\n"));
+                }
             }
             Ok(outp) => {
                 logger.warn(&format!(
@@ -464,7 +547,7 @@ fn write_textutil_then_fallback<W: Write>(
             path.display()
         ));
     }
-    write_text(path, binary, logger, out)
+    write_text(path, binary, clip, logger, out)
 }
 
 fn should_use_textutil(path: &Path) -> bool {
@@ -516,6 +599,57 @@ fn handle_binary<W: Write>(
 
 fn is_probably_binary(bytes: &[u8]) -> bool {
     bytes.contains(&0)
+}
+
+fn write_clipped<W: Write>(
+    content: &str,
+    clip: ClipSpec,
+    out: &mut W,
+) -> anyhow::Result<bool> {
+    let lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let total = lines.len();
+
+    if total == 0 {
+        return Ok(false);
+    }
+
+    let ClipSpec { head, tail } = clip;
+
+    // 如果 head + tail 覆盖了全部行，就不截断
+    if head + tail >= total {
+        write!(out, "{}", content)?;
+        return Ok(content.ends_with('\n'));
+    }
+
+    let mut ended_with_newline = false;
+
+    // 头部
+    let head_count = head.min(total);
+    for l in &lines[..head_count] {
+        write!(out, "{}", l)?;
+        ended_with_newline = l.ends_with('\n');
+    }
+
+    // 计算中间被截掉多少行
+    let start_tail = total.saturating_sub(tail);
+    let skipped = if start_tail > head_count {
+        start_tail - head_count
+    } else {
+        0
+    };
+
+    if skipped > 0 {
+        writeln!(out, "... (snipped {} lines) ...", skipped)?;
+        ended_with_newline = true;
+    }
+
+    // 尾部
+    for l in &lines[start_tail..] {
+        write!(out, "{}", l)?;
+        ended_with_newline = l.ends_with('\n');
+    }
+
+    Ok(ended_with_newline)
 }
 
 fn escape_xml_attr(s: &str) -> String {
@@ -606,5 +740,19 @@ mod tests {
     fn binary_detection_by_null_byte() {
         assert!(is_probably_binary(b"abc\0def"));
         assert!(!is_probably_binary(b"plain text"));
+    }
+
+    #[test]
+    fn write_clipped_inserts_snipped_line() {
+        let content = "line1\nline2\nline3\nline4\nline5\nline6\n";
+        let clip = ClipSpec { head: 2, tail: 2 };
+        let mut buf = Vec::new();
+        let ended = write_clipped(content, clip, &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+
+        assert!(s.contains("line1\nline2\n"));
+        assert!(s.contains("line5\nline6\n"));
+        assert!(s.contains("... (snipped 2 lines) ..."));
+        assert!(ended);
     }
 }
