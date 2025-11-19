@@ -17,6 +17,8 @@ globwalk = "0.9"
 which = "6.0"
 base64 = "0.22"
 hex = "0.4"
+chardetng = "0.1"
+encoding_rs = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2"

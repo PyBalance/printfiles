@@ -1,7 +1,9 @@
 use base64::engine::general_purpose::STANDARD as Base64;
 use base64::Engine;
+use chardetng::EncodingDetector;
 use clap::{Parser, ValueEnum};
 use globwalk::GlobWalkerBuilder;
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
@@ -453,6 +455,29 @@ fn expand_glob(pattern: &str, follow_links: bool) -> anyhow::Result<Vec<PathBuf>
         .collect())
 }
 
+/// 智能解码文件内容，自动检测编码格式（UTF-8、GBK、Shift-JIS 等）
+fn decode_content(bytes: &[u8]) -> Cow<'_, str> {
+    // 快速路径：先尝试按 UTF-8 解析
+    // 绝大多数现代代码文件都是 UTF-8，这样最快且最准
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return Cow::Borrowed(s);
+    }
+
+    // 慢速路径：UTF-8 解析失败，启用编码探测器
+    let mut detector = EncodingDetector::new();
+    detector.feed(bytes, true);
+
+    // guess(tld, allow_utf8):
+    // - tld=None 表示不特定针对某个国家域名
+    // - allow_utf8=true 允许猜测为 UTF-8（虽然前面已检查，但为了完整性）
+    let encoding = detector.guess(None, true);
+
+    // 使用猜测到的编码进行解码
+    // 会自动处理 BOM，并将无法识别的字节替换为 �
+    let (cow, _encoding_used, _malformed) = encoding.decode(bytes);
+    cow
+}
+
 fn read_and_write<W: Write>(
     path: &Path,
     reader: Reader,
@@ -487,13 +512,14 @@ fn write_text<W: Write>(
                 // 二进制按策略处理（skip/hex/base64），不再做截断
                 return Ok(true);
             }
-            // 尽量用 UTF-8 显示，非 UTF-8 时采用有损转换
-            let s = String::from_utf8_lossy(&bytes);
+            // 使用智能编码检测解码内容（支持 UTF-8、GBK、Shift-JIS 等）
+            let s = decode_content(&bytes);
+
             if let Some(clip) = clip {
                 write_clipped(&s, clip, out)
             } else {
                 write!(out, "{}", s)?;
-                Ok(bytes.ends_with(b"\n"))
+                Ok(s.ends_with('\n'))
             }
         }
         Err(e) => {
@@ -519,7 +545,8 @@ fn write_textutil_then_fallback<W: Write>(
         match output {
             Ok(outp) if outp.status.success() => {
                 if let Some(clip) = clip {
-                    let s = String::from_utf8_lossy(&outp.stdout);
+                    // textutil 输出通常是 UTF-8，但也用 decode_content 处理以防万一
+                    let s = decode_content(&outp.stdout);
                     return write_clipped(&s, clip, out);
                 } else {
                     out.write_all(&outp.stdout)?;
